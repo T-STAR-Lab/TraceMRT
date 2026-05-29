@@ -1,0 +1,99 @@
+# Python bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+.eggs/
+*.egg
+
+# Virtual environments and local Python tooling
+.venv/
+venv/
+env/
+ENV/
+.conda/
+.python-version
+.mypy_cache/
+.pyright/
+.pyre/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+SECRETS
+secrets.*
+*.pem
+*.key
+*.token
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs, caches, and experiment scratch space
+logs/
+*.log
+*.logs
+.cache/
+cache/
+llm_response_cache/
+wandb/
+.prompt_history
+.checkpoints/
+exp/
+outputs/
+results/
+
+# CUA-SHADE-Arena temporary inspect runs
+cua_shade_arena/run_inspect_*/
+
+# Generated transcripts and evaluations
+# Task definitions stay tracked; run outputs under each task are ignored.
+task_pairs/*/test_transcripts/
+task_pairs/*/transcripts/
+task_pairs/*/transcripts_*/
+task_pairs_agentcompany/*/test_transcripts/
+task_pairs_agentcompany/*/transcripts/
+task_pairs_agentcompany/*/transcripts_*/
+
+# Generated reports and metrics
+plots/
+**/plots/
+results/**/*.csv
+results/**/*.tsv
+results/**/*.xlsx
+outputs/**/*.csv
+outputs/**/*.tsv
+outputs/**/*.xlsx
+*_results*.csv
+*_metrics*.csv
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.parquet
+
+# Local notebooks or ad hoc scripts
+scratch/
+notebooks/.ipynb_checkpoints/
+testing.py
+transcript_analysis.py
+transcript_summarization.py
+what_does_the_agent_see.py
+check_tmux_processes.py
+tmux_jupyter.py
+start_jupyter.sh
+reset_vscode_server.sh

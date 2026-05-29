@@ -1,0 +1,19 @@
+services:
+  default:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    x-local: true
+    init: true
+    command: ["tail", "-f", "/dev/null"]
+
+    network_mode: "host"
+
+    ipc: "host"
+
+    environment:
+      http_proxy: "http://localhost:7890"
+      https_proxy: "http://localhost:7890"
+      HTTP_PROXY: "http://localhost:7890"
+      HTTPS_PROXY: "http://localhost:7890"
