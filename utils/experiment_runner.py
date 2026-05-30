@@ -126,6 +126,7 @@ class ExperimentRunner:
         transcript = await pipeline_utils.run_agent_and_monitor(
             agent_element,
             monitor_llm_list,
+            evaluator_llm=evaluator_llm,
             control_protocol=self.control_protocol,
             protocol_params=protocol_params,
             include_secondary_task=self.include_secondary_task,

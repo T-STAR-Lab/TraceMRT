@@ -13,3 +13,5 @@ python run_shade.py \
     --optimize False \
     --run_monitor True \
     --config_file "config.yaml"
+
+echo "All SHADE-Arena runs completed."

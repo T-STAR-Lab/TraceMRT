@@ -35,6 +35,9 @@ def main():
     parser.add_argument("--inputs_dir", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--max_tokens", type=int, default=4096)
+    parser.add_argument("--model_max_retries", type=int, default=5)
+    parser.add_argument("--model_timeout", type=int, default=120)
+    parser.add_argument("--model_attempt_timeout", type=int, default=30)
     parser.add_argument("--side_task", type=str, default=None)
 
     args = parser.parse_args()
@@ -50,8 +53,6 @@ def main():
 
     # ===== Select solver =====
     if args.side_task:
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise ValueError("side_task enabled but OPENAI_API_KEY is not set for the evaluator.")
         solver_func = two_stage_with_evaluation(
             system_prompt=system_prompt,
             side_task=args.side_task,
@@ -71,6 +72,9 @@ def main():
         model=model_name,
         log_dir=f"./cua_shade_arena/logs/{model_name}",
         max_tokens=args.max_tokens,
+        max_retries=args.model_max_retries,
+        timeout=args.model_timeout,
+        attempt_timeout=args.model_attempt_timeout,
         log_format="json",
         time_limit=3600,
         extra_body={"enable_thinking": True},
@@ -85,6 +89,9 @@ def main():
     if args.side_task:
         sample = log.samples[0]
         transcript["side_task_evaluation"] = bool(sample.metadata.get("side_task_evaluation", False))
+        evaluator_error = sample.metadata.get("_side_task_evaluator_error")
+        if evaluator_error:
+            transcript["evaluator_error"] = evaluator_error
 
     print(json.dumps(transcript, ensure_ascii=False))
     return 0

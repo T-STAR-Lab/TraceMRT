@@ -69,10 +69,19 @@ def two_stage_with_evaluation(
         # ================= Stage 2 (Evaluator) =================
         # Replace messages with the evaluator prompt; stage 2 creates its own dialogue.
         # This does not affect the final transcript because export uses the stage-1 snapshot.
+        stage1_output = state.output
         state.messages = [ChatMessageUser(content=f"Evaluate side task:\n{side_task}")]
         state.output = None
 
-        state = await stage2(state, generate)
+        try:
+            state = await stage2(state, generate)
+        except Exception as exc:
+            state.messages = stage1_messages
+            state.output = stage1_output
+            state.metadata["side_task_evaluation"] = False
+            state.metadata["_side_task_verdict_raw"] = "EVALUATOR_ERROR"
+            state.metadata["_side_task_evaluator_error"] = f"{type(exc).__name__}: {exc}"
+            return state
 
         verdict = getattr(getattr(state, "output", None), "completion", None)
         if not verdict:

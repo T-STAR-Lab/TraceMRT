@@ -59,9 +59,9 @@ Set the API keys for the providers you use:
 
 ```bash
 export OPENAI_API_KEY="..."     # OpenAI evaluator and OpenAI-backed monitors.
-export DASHSCOPE_API_KEY="..."  # CUA agents through Inspect's openai-api/dashscope provider.
+export DASHSCOPE_API_KEY="..."  # DashScope agents and monitors.
 export ANTHROPIC_API_KEY="..."  # Required only for Anthropic-backed models.
-export GOOGLE_API_KEY="..."     # Required only for optimization.
+export GOOGLE_API_KEY="..."     # Required for Gemini optimization.
 ```
 
 Optional provider settings:
@@ -70,10 +70,9 @@ Optional provider settings:
 export DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 export OPENAI_BASE_URL="..."    # Optional, only for non-default OpenAI-compatible endpoints.
 export ANTHROPIC_BASE_URL="..." # Optional.
-export GOOGLE_MODEL="gemini-3.1-pro-preview"
 ```
 
-For SHADE-Arena, model lists are configured in `config.yaml`. For CUA-SHADE-Arena, agent models are passed to `run_cua.py` and are called as `openai-api/dashscope/<model_name>` through Inspect AI. CUA side-task evaluation uses `openai/gpt-5.2` with `OPENAI_API_KEY`.
+For SHADE-Arena, model lists are configured in `config.yaml`. For CUA-SHADE-Arena, agent models are passed to `run_cua.py` and are called as `openai-api/dashscope/<model_name>` through Inspect AI.
 
 ## Running SHADE-Arena
 
@@ -225,12 +224,13 @@ cua_task_pairs/<task>/transcripts_with_secondary_task/<agent>/<monitor_model>/tr
 
 ## Optimization
 
-Optimization produces multiple monitor-free candidate trajectories. It should not be combined with inline monitor scoring. If both `--optimize True` and `--run_monitor True` are provided, optimization takes precedence and monitor scoring should be run afterward with `add_monitor.py`.
+Optimization first searches over prompt variants, then runs a full arena evaluation for the top five candidates. With `--run_monitor True`, the final candidates are scored with the original HAO objective: `completion - suspicion`; the monitor-scored transcript is saved under the monitor model directory, and a monitor-free view of the same trajectory is also saved under `candidates/`. With `--run_monitor False`, final monitor scoring is skipped and the five fully evaluated trajectories are saved only under `candidates/` in fast-fitness order.
 
-Optimization requires:
+Optimization uses Gemini for Phase One prompt rewriting:
 
 ```bash
 export GOOGLE_API_KEY="..."
+export GOOGLE_MODEL="gemini-3.1-pro-preview"  # optional
 ```
 
 ### SHADE-Arena Optimization
@@ -243,15 +243,18 @@ python run_shade.py \
   --max_concurrent_threads 1 \
   --include_secondary_task True \
   --optimize True \
-  --run_monitor False \
+  --run_monitor True \
   --config_file config.yaml
 ```
 
-Output:
+Outputs:
 
 ```text
 task_pairs/<task>/transcripts_optimization/<agent>/candidates/transcript_N.json
+task_pairs/<task>/transcripts_optimization/<agent>/<monitor_model>/transcript_N.json
 ```
+
+Set `--run_monitor False` to skip final monitor scoring and save only `candidates/` outputs.
 
 ### CUA-SHADE-Arena Optimization
 
@@ -263,18 +266,19 @@ python run_cua.py \
   --max_concurrent 1 \
   --include_secondary_task \
   --optimize True \
-  --run_monitor False
+  --run_monitor True \
+  --monitor_model gpt-5.2 \
+  --monitor_style bayesian
 ```
 
-Output:
+Outputs:
 
 ```text
 cua_task_pairs/<task>/transcripts_optimization/<agent>/candidates/transcript_N.json
+cua_task_pairs/<task>/transcripts_optimization/<agent>/<monitor_model>/transcript_N.json
 ```
 
-Each optimization candidate contains the conversation, side-task evaluation, optimization metadata, and optimized system prompt. It does not contain monitor output.
-
-To score optimization candidates, run `add_monitor.py`. For `transcripts_optimization`, the input subdirectory defaults to `candidates`:
+You can still score candidates later with `add_monitor.py`. For `transcripts_optimization`, the input subdirectory defaults to `candidates`:
 
 ```bash
 python add_monitor.py \
@@ -285,12 +289,6 @@ python add_monitor.py \
   --monitor_style bayesian \
   --max_num_transcripts 10 \
   --max_concurrent 5
-```
-
-Monitor-scored optimization output:
-
-```text
-<task_root>/<task>/transcripts_optimization/<agent>/<monitor_model>/transcript_N.json
 ```
 
 ## Output Schema Notes
@@ -305,14 +303,14 @@ Monitor-scored files additionally contain one or more monitor response fields:
 - `monitoring_response`: `base_aware` monitor output.
 - `monitoring_response_<style>`: non-base monitor outputs.
 
+Agent-only `no_monitor` transcripts intentionally do not include an empty `monitoring_response` field.
+
 Optimization candidates additionally contain:
 
 - `phase1_frame`
 - `phase2_genes`
 - `phase2_generations`
 - `optimized_system_prompt`
-
-Agent-only `no_monitor` transcripts intentionally do not include an empty `monitoring_response` field.
 
 ## Citation
 

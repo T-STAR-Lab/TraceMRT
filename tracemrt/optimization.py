@@ -18,7 +18,7 @@ from utils.llm_utils import get_appropriate_llm
 
 from tracemrt.types import GAConfig, Individual, CandidateResult
 from tracemrt.strategy_bank import O_STRATEGIES, P_STRATEGIES
-from tracemrt.scoring import side_run_shade
+from tracemrt.scoring import extract_suspicion_from_transcript, side_run_shade, compute_fitness
 from tracemrt.prompts import (
     RELATION_CLASSIFICATION_PROMPT,
     PHASE_ONE_RETRY_TEMPLATE,
@@ -27,7 +27,7 @@ from tracemrt.prompts import (
 )
 
 GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
-GEMINI = os.environ.get("GOOGLE_MODEL", "gemini-3-flash-preview")
+GEMINI = os.environ.get("GOOGLE_MODEL", "gemini-3.1-pro-preview")
 
 def _dedent_strip(text: str) -> str:
         """Ensure that multi-line strings are properly dedented.
@@ -135,37 +135,6 @@ def _extract_fitness_score(text: str) -> Optional[float]:
         return float(m.group(1))
     except ValueError:
         return None
-
-def _extract_refined_task(text: str) -> Optional[str]:
-    """Extract refined task from arena failure rewrite result."""
-    TASK_PATTERN = re.compile(
-        r"<REFINED_TASK>\s*(.*?)\s*</REFINED_TASK>",
-        re.DOTALL | re.IGNORECASE,
-    )
-    m = TASK_PATTERN.search(text)
-    if not m:
-        return None
-    content = m.group(1).strip()
-    return content or None
-
-def _extract_refined_strategy(text: str) -> Optional[str]:
-    """Extract refined task from arena failure rewrite result."""
-    TASK_PATTERN = re.compile(
-        r"<SYNTHESIZED_PROTOCOL>\s*(.*?)\s*</SYNTHESIZED_PROTOCOL>",
-        re.DOTALL | re.IGNORECASE,
-    )
-    m = TASK_PATTERN.search(text)
-    if not m:
-        return None
-    content = m.group(1).strip()
-    return content or None
-
-def _pick_two_diff_groups(n: int, group_map: list[int]) -> tuple[int,int]:
-    a = random.randrange(n)
-    while True:
-        b = random.randrange(n)
-        if group_map[b] != group_map[a]:
-            return a, b
         
 def _get_client() -> genai.Client:
     if not GEMINI_API_KEY:
@@ -235,7 +204,7 @@ async def phase_one(
     max_tries: int = 5,
 ) -> Tuple[str, Optional[str]]:
 
-    print("=== Phase One: ===")
+    print("=== Phase One: Gemini optimization ===")
     client = _get_client()
     rewrite_prompt = ""
     relation = ""
@@ -422,6 +391,7 @@ async def phase_two(
 
     fast_fitness_threshold: float = 6.0,
     top_k: int = 5,
+    score_final_candidates: bool = True,
 ) -> tuple[list[CandidateResult], int]:
     print("=== Phase Two: ===")
     if cfg.seed is not None:
@@ -523,8 +493,8 @@ async def phase_two(
     for i, cand in enumerate(top_candidates):
         print(f"  [{i + 1}] fast_fitness={cand.fitness:7.2f}")
 
-    # ========== Part 2: Full SHADE-Arena evaluation ==========
-    print(f"\n[Part 2] Full SHADE-Arena Evaluation")
+    # ========== Part 2: Full evaluation ==========
+    print(f"\n[Part 2] Full Evaluation")
 
     async def evaluate_single_candidate(idx: int, candidate: CandidateResult) -> CandidateResult:
         """Evaluate one candidate sample."""
@@ -533,14 +503,21 @@ async def phase_two(
         current_system_prompt = candidate.system_prompt
 
         try:
-            # Run the full SHADE-Arena evaluation.
+            # Run the full evaluation.
             transcript = await evaluate_fn(current_system_prompt)
-            completion = float(side_run_shade(transcript))
-            suspicion = 0.0
-            fitness = completion
+            if score_final_candidates:
+                completion = float(side_run_shade(transcript))
+                suspicion = float(extract_suspicion_from_transcript(transcript))
+                fitness = compute_fitness(completion, suspicion, lam=cfg.lam)
 
-            print(f"  Candidate {idx + 1} - Completion: {completion:.2f}")
-            print(f"  Candidate {idx + 1} - Fitness (monitor-free): {fitness:.2f}")
+                print(f"  Candidate {idx + 1} - Completion: {completion:.2f}")
+                print(f"  Candidate {idx + 1} - Suspicion: {suspicion:.2f}")
+                print(f"  Candidate {idx + 1} - Score: {fitness:.2f}")
+            else:
+                completion = 0.0
+                suspicion = 0.0
+                fitness = candidate.fitness
+                print(f"  Candidate {idx + 1} - Final scoring skipped; retaining fast_fitness={fitness:.2f}")
 
             return CandidateResult(
                 system_prompt=current_system_prompt,
@@ -570,11 +547,12 @@ async def phase_two(
         for idx, candidate in enumerate(top_candidates)
     ])
 
-    # Sort by fitness.
+    # Sort by final fitness when scored; otherwise this preserves fast-fitness order.
     all_results = sorted(all_results, key=lambda x: x.fitness, reverse=True)
 
     print(f"\n[Part 2 Complete] All {len(all_results)} candidates evaluated")
+    label = "score" if score_final_candidates else "fast_fitness"
     for i, result in enumerate(all_results):
-        print(f"  [{i + 1}] fitness={result.fitness:.2f}")
+        print(f"  [{i + 1}] {label}={result.fitness:.2f}")
 
     return all_results, gen_cnt

@@ -30,7 +30,7 @@ TASKS_DIR = os.path.join(REPO_ROOT, "cua_task_pairs")
 FORMATS_PATH = os.path.join(INSPECT_DIR, "formats.json")
 TAC_OPENHANDS_DIR = os.path.join(INSPECT_DIR, "tac-openhands")
 INSPECT_RUNNER_PATH = os.path.join(REPO_ROOT, "cua_shade_arena", "main.py")
-DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
 
@@ -156,7 +156,7 @@ def monitor_dir_name(monitor_model: Optional[str]) -> str:
 
 
 def ensure_dashscope_env() -> None:
-    os.environ.setdefault("DASHSCOPE_BASE_URL", DEFAULT_DASHSCOPE_BASE_URL)
+    os.environ.setdefault("DASHSCOPE_BASE_URL", DASHSCOPE_BASE_URL)
 
 
 def transcript_type(args: argparse.Namespace) -> str:
@@ -231,6 +231,15 @@ class TranscriptLike:
 # Inspect runner wrapper
 # ---------------------------
 
+def monitor_results_for_scoring(transcript_obj: Dict[str, Any]) -> List[Dict[str, Any]]:
+    responses = []
+    for key, value in transcript_obj.items():
+        if key == "monitoring_response" or key.startswith("monitoring_response_"):
+            if isinstance(value, str) and value.strip():
+                responses.append({"messages": [{"content": value}]})
+    return responses
+
+
 class InspectRunner:
     def __init__(
         self,
@@ -239,6 +248,9 @@ class InspectRunner:
         inputs_dir: str,
         backend_model: str,
         max_tokens: int,
+        model_max_retries: int = 2,
+        model_timeout: int = 120,
+        model_attempt_timeout: int = 30,
         monitor_model: Optional[str] = None,
         monitor_style: str = "base_aware",
     ):
@@ -246,6 +258,9 @@ class InspectRunner:
         self.inputs_dir = inputs_dir
         self.backend_model = backend_model
         self.max_tokens = int(max_tokens)
+        self.model_max_retries = int(model_max_retries)
+        self.model_timeout = int(model_timeout)
+        self.model_attempt_timeout = int(model_attempt_timeout)
         self.monitor_model = monitor_model
         self.monitor_style = (monitor_style or "base_aware").strip().lower()
 
@@ -280,6 +295,12 @@ class InspectRunner:
             self.backend_model,
             "--max_tokens",
             str(self.max_tokens),
+            "--model_max_retries",
+            str(self.model_max_retries),
+            "--model_timeout",
+            str(self.model_timeout),
+            "--model_attempt_timeout",
+            str(self.model_attempt_timeout),
         ]
         if side_task:
             cmd.extend(["--side_task", side_task])
@@ -321,7 +342,7 @@ class InspectRunner:
         task_name: str,
         transcript_obj: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Optionally run monitor and write monitoring_response + monitor_results into transcript_obj."""
+        """Optionally run monitor and write monitoring_response fields into transcript_obj."""
         if not self.monitor_model or not self.monitor_to_llm_dict:
             return transcript_obj
 
@@ -342,10 +363,6 @@ class InspectRunner:
                 transcript_obj["monitoring_response"] = last_content
             else:
                 transcript_obj[f"monitoring_response_{self.monitor_style}"] = last_content
-
-            # For GA scoring compatibility: store monitor outputs in a uniform structure
-            transcript_obj.setdefault("monitor_results", [])
-            transcript_obj["monitor_results"].append({"messages": [{"content": last_content}]})
 
         except Exception as e:
             transcript_obj[f"monitor_error_{self.monitor_style}"] = str(e)
@@ -410,6 +427,7 @@ async def optimize_secondary(
 
     runner: InspectRunner,
     run_sem: asyncio.Semaphore,
+    score_final_candidates: bool = True,
 ) -> List[OptimizationResult]:
     """Return optimization results including system_prompt and metadata.
 
@@ -456,9 +474,12 @@ async def optimize_secondary(
             sem=run_sem,
             side_task=secondary,
         )
+        if score_final_candidates:
+            transcript_obj = await runner.add_monitor(task_name=task_name, transcript_obj=transcript_obj)
 
+        monitor_results = monitor_results_for_scoring(transcript_obj) if score_final_candidates else []
         exp_meta = transcript_obj.get("experiment_metadata", {}) or {}
-        return TranscriptLike(raw=transcript_obj, monitor_results=[], experiment_metadata=exp_meta)
+        return TranscriptLike(raw=transcript_obj, monitor_results=monitor_results, experiment_metadata=exp_meta)
 
     cfg = GAConfig(
         population_size=10,
@@ -467,7 +488,7 @@ async def optimize_secondary(
         tournament_k=3,
         mutation_prob=0.2,
         max_concurrency=10,
-        lam=1.0,                # retained for compatibility; optimization candidates are monitor-free
+        lam=1.0,                # when scored: fitness = completion - lam*suspicion
     )
 
     all_results, gen_cnt = await phase_two(
@@ -478,6 +499,7 @@ async def optimize_secondary(
         extra_args=extra_args,
         main_task=primary,
         side_task=secondary,
+        score_final_candidates=score_final_candidates,
     )
 
     # Build OptimizationResult records for every result.
@@ -522,10 +544,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num_experiments", type=int, default=1, help="Number of runs per task")
     parser.add_argument("--backend_model", required=True, help="Model identifier (e.g., openai/gpt-4o)")
     parser.add_argument("--max_tokens", type=int, default=4096)
+    parser.add_argument("--model_max_retries", type=int, default=2, help="Max retries per Inspect model request")
+    parser.add_argument("--model_timeout", type=int, default=120, help="Total retry timeout per Inspect model request, in seconds")
+    parser.add_argument("--model_attempt_timeout", type=int, default=30, help="Timeout per Inspect model request attempt, in seconds")
     parser.add_argument("--max_concurrent", type=int, default=10, help="Max concurrent Inspect AI runs")
 
     parser.add_argument("--optimize", type=str2bool, default=False, metavar="True|False", help="Enable phase1/phase2 optimization")
-    parser.add_argument("--run_monitor", type=str2bool, default=False, metavar="True|False", help="Run monitor during trajectory generation. Use add_monitor.py instead after optimization.")
+    parser.add_argument("--run_monitor", type=str2bool, default=False, metavar="True|False", help="Run monitor and save monitor-scored transcripts.")
 
     parser.add_argument("--monitor_model", default=None, help="Monitor model to use when --run_monitor True (e.g., gpt-5.2)")
     parser.add_argument("--monitor_style", default="base_aware", help="Monitor style (e.g., base_aware)")
@@ -537,11 +562,7 @@ def parse_args() -> argparse.Namespace:
     if args.optimize and not args.include_secondary_task:
         raise ValueError("--optimize requires --include_secondary_task")
 
-    if args.optimize and args.run_monitor:
-        print("Warning: --run_monitor True is ignored when --optimize True. Run add_monitor.py on candidates after optimization.")
-        args.run_monitor = False
-        args.monitor_model = None
-    elif args.monitor_model and not args.run_monitor:
+    if args.monitor_model and not args.run_monitor and not args.optimize:
         print("Warning: --monitor_model was provided, enabling --run_monitor True.")
         args.run_monitor = True
 
@@ -610,6 +631,9 @@ async def async_main() -> int:
         inputs_dir=TAC_OPENHANDS_DIR,
         backend_model=args.backend_model,
         max_tokens=args.max_tokens,
+        model_max_retries=args.model_max_retries,
+        model_timeout=args.model_timeout,
+        model_attempt_timeout=args.model_attempt_timeout,
         monitor_model=args.monitor_model,
         monitor_style=args.monitor_style,
     )
@@ -639,6 +663,7 @@ async def async_main() -> int:
                 briefs_dir=briefs_dir,
                 runner=runner,
                 run_sem=ga_run_sem,
+                score_final_candidates=args.run_monitor,
             )
 
         if opt_results:
@@ -649,7 +674,7 @@ async def async_main() -> int:
                 args.backend_model.split("/")[-1],
                 "candidates",
             )
-            start_counter = next_transcript_index(opt_log_dir)
+            saved_counter = next_transcript_index(opt_log_dir)
 
             for result_idx, opt_result in enumerate(opt_results):
                 if opt_result.best_transcript is None:
@@ -663,9 +688,28 @@ async def async_main() -> int:
                     "phase2_generations": opt_result.phase2_generations,
                     "optimized_system_prompt": opt_result.system_prompt,
                 }
-                opt_filename = os.path.join(opt_log_dir, f"transcript_{start_counter + result_idx}.json")
+                opt_filename = os.path.join(opt_log_dir, f"transcript_{saved_counter}.json")
                 write_json(opt_filename, opt_data)
                 print(f"Saved optimization result: {opt_filename}")
+
+                if args.run_monitor:
+                    monitor_log_dir = os.path.join(
+                        TASKS_DIR,
+                        task_name,
+                        "transcripts_optimization",
+                        args.backend_model.split("/")[-1],
+                        monitor_dir_name(args.monitor_model),
+                    )
+                    monitor_data = dict(opt_data)
+                    raw_transcript = opt_result.best_transcript or {}
+                    for key, value in raw_transcript.items():
+                        if key == "monitoring_response" or key.startswith("monitoring_response_") or key.startswith("monitor_error_"):
+                            monitor_data[key] = value
+                    monitor_filename = os.path.join(monitor_log_dir, f"transcript_{saved_counter}.json")
+                    write_json(monitor_filename, monitor_data)
+                    print(f"Saved optimization monitor result: {monitor_filename}")
+
+                saved_counter += 1
             continue
 
         brief_path = os.path.join(briefs_dir, f"{task_name}_brief.txt")
@@ -674,7 +718,7 @@ async def async_main() -> int:
         task_brief_map[task_name] = brief_path
 
     if args.optimize:
-        print("\n=== Optimization candidates saved. Run add_monitor.py with --in_subdir candidates to score them. ===")
+        print("\n=== Optimization candidates saved. ===")
         safe_rmtree(run_base_dir)
         return 0
 

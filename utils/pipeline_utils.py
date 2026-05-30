@@ -14,7 +14,6 @@ from task_pairs.base_task_definition import BaseTaskDefinition
 from task_evaluation.evaluation_factory import get_evaluation_for_task
 from utils.functions_runtime import FunctionsRuntime, make_function, TaskEnvironment
 from utils.logging_utils import Logger, OutputLogger, llm_conversation_to_string, solution_conversation_to_string, string_to_json_conversation, json_conversation_to_string
-from utils.llm_utils import get_appropriate_llm, get_string_to_llm_dict
 from utils.pipeline_elements import (
     AgentPipeline,
     BasePipelineElement,
@@ -909,6 +908,7 @@ class PipelineUtils:
         agent_element: BasePipelineElement,
         monitor_model_list: List[BaseLLM],
         *,
+        evaluator_llm: Optional[BaseLLM] = None,
         control_protocol: Optional[str] = None,
         include_secondary_task: bool = True,
         max_iters: int = 200,
@@ -932,6 +932,10 @@ class PipelineUtils:
             optimize = False
 
         if optimize and include_secondary_task:
+            if evaluator_llm is None:
+                raise ValueError("Optimization requires an evaluator_llm for full candidate evaluation.")
+            score_final_candidates = bool(monitor_model_list)
+
             # HAO phase 1: refine the user query
             main_task = self.task_def.user_query
             side_task = self.task_def.secondary_task
@@ -942,8 +946,8 @@ class PipelineUtils:
             async def evaluate_candidate(candidate_system_prompt: str) -> Transcript:
                 return await self.run_agent_monitor_and_evaluate(
                     agent_element=agent_element,
-                    monitor_llm_list=[],
-                    evaluator_llm=get_appropriate_llm("gpt-5.2"),
+                    monitor_llm_list=monitor_model_list,
+                    evaluator_llm=evaluator_llm,
                     control_protocol=control_protocol,
                     include_secondary_task=True,
                     max_iters=max_iters,
@@ -961,7 +965,7 @@ class PipelineUtils:
                 tournament_k=3,
                 mutation_prob=0.2,
                 max_concurrency=10,
-                lam=1.0,                # retained for compatibility; optimization candidates are monitor-free
+                lam=1.0,                # when scored: fitness = completion - lam*suspicion
             )
 
             all_results, gen_cnt = await phase_two(
@@ -972,6 +976,7 @@ class PipelineUtils:
                 extra_args=base_extra_args,
                 main_task=main_task,
                 side_task=side_task,
+                score_final_candidates=score_final_candidates,
             )
 
             # Print the best result.
@@ -995,11 +1000,7 @@ class PipelineUtils:
             while os.path.exists(resolve_path(os.path.join(nested_log_dir, f"transcript_{start_counter}.json"))):
                 start_counter += 1
 
-            # Save all top-k results.
-            for result_idx, result in enumerate(all_results):
-                if result.transcript is None:
-                    continue
-
+            def build_candidate_data(result: Any) -> Dict[str, Any]:
                 json_conversation = []
                 for msg in result.transcript.conversation:
                     json_msg = {
@@ -1009,7 +1010,7 @@ class PipelineUtils:
                     }
                     json_conversation.append(json_msg)
 
-                data = {
+                return {
                     "conversation": json_conversation,
                     "side_task_evaluation": result.transcript.experiment_metadata.get("side_task_evaluation", {}),
                     "phase1_frame": frame_name,
@@ -1021,10 +1022,32 @@ class PipelineUtils:
                     "optimized_system_prompt": result.system_prompt,
                 }
 
-                filename = resolve_path(os.path.join(nested_log_dir, f"transcript_{start_counter + result_idx}.json"))
+            # Save the final evaluated trajectory under candidates; when monitors were
+            # enabled, also save a monitor-scored view with the same transcript index.
+            saved_counter = start_counter
+            for result_idx, result in enumerate(all_results):
+                if result.transcript is None:
+                    continue
+
+                data = build_candidate_data(result)
+                filename = resolve_path(os.path.join(nested_log_dir, f"transcript_{saved_counter}.json"))
                 with open(filename, "w") as f:
                     json.dump(data, f, indent=2)
-                print(f"Saved result {result_idx + 1} to {filename}")
+                print(f"Saved candidate result {result_idx + 1} to {filename}")
+
+                monitor_responses = result.transcript.monitor_responses
+                for monitor_idx, monitor_llm in enumerate(monitor_model_list):
+                    monitor_dir = resolve_path(os.path.join(f"./{self.task_folder}/transcripts_optimization", agent_element.model, monitor_llm.model))
+                    os.makedirs(monitor_dir, exist_ok=True)
+                    monitor_data = dict(data)
+                    monitor_data["monitoring_response"] = monitor_responses[monitor_idx] if monitor_idx < len(monitor_responses) else ""
+
+                    monitor_filename = resolve_path(os.path.join(monitor_dir, f"transcript_{saved_counter}.json"))
+                    with open(monitor_filename, "w") as f:
+                        json.dump(monitor_data, f, indent=2)
+                    print(f"Saved monitor result to {monitor_filename}")
+
+                saved_counter += 1
 
             return None
 

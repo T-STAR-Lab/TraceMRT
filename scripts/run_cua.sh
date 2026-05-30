@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -z "${DASHSCOPE_API_KEY:-}" ]]; then
-    echo "Set DASHSCOPE_API_KEY before running this script." >&2
-    exit 1
-fi
-
-if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-    echo "Set OPENAI_API_KEY before running this script." >&2
-    exit 1
-fi
-
 export DASHSCOPE_BASE_URL="${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
 
 agents=(
