@@ -12,13 +12,13 @@ Our work has two main contributions:
 
 ## Overview
 
+The first figure summarizes the TraceMRT pipeline for generating and optimizing covertly misaligned task-completion trajectories across SHADE-Arena and CUA-SHADE-Arena.
+
 ![TraceMRT framework](assets/framework_hao.png)
 
-PDF: [assets/framework_hao.pdf](assets/framework_hao.pdf)
+The second figure shows the monitor scaffold used to aggregate trajectory evidence into Bayesian monitor judgments.
 
 ![Bayesian monitor scaffold](assets/monitor_scaffold.png)
-
-PDF: [assets/monitor_scaffold.pdf](assets/monitor_scaffold.pdf)
 
 ## Repository Layout
 
