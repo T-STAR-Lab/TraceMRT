@@ -27,7 +27,7 @@ class ExperimentConfig:
             "base_aware", "base_unaware", "base_omniscient",
             "sequential_aware", "sequential_unaware", "sequential_omniscient",
             "hierarchical_aware", "hierarchical_unaware", "hierarchical_omniscient",
-            "bayesian", "bayesian_improve"
+            "bayesian"
         }
 
         if self.monitor_style is None:

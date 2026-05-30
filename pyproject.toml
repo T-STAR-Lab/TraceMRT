@@ -1,74 +1,150 @@
-# See https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "complex_sabotage"
-description = "Complex Sabotage"
-requires-python = ">=3.10"
+name = "tracemrt"
+version = "0.1.0"
+description = "TraceMRT: SHADE-Arena and CUA-SHADE-Arena trajectory generation, optimization, and monitor evaluation."
 readme = "README.md"
-dynamic = ["version"]
+requires-python = ">=3.10,<3.12"
+license = { text = "MIT" }
 
-[project.entry-points.control_arena]
-control_arena = "complex_sabotage_setting"
+# Keep this list focused on dependencies needed to run the public SHADE-Arena
+# and CUA-SHADE-Arena workflows. Avoid adding notebook, GPU training, or
+# unrelated analysis packages unless they are imported by the repository.
+dependencies = [
+    # Core config, typing, and runtime helpers
+    "PyYAML>=6.0,<7",
+    "pydantic[email]>=2.10,<3",
+    "typing-extensions>=4.12",
+    "python-dotenv>=1.0,<2",
+    "simple-parsing>=0.1.6,<0.2",
+    "docstring-parser>=0.16,<1",
+    "rich>=13.9,<15",
+    "tenacity>=8.5,<9",
+    "httpx>=0.28,<1",
+    "jsonlines>=4.0,<5",
+    "jsonref>=1.1,<2",
+    "openapi-pydantic>=0.5.1,<0.6",
 
-[tool.setuptools]
-#packages = ["examples"]
+    # LLM providers
+    "openai>=2.0,<3",
+    "anthropic>=0.79,<1",
+    "tiktoken>=0.8,<1",
+    "google-genai>=1.61,<2",
 
-[tool.setuptools.packages.find]
-include = ["complex_sabotage_setting", "task_pairs", "environments", "utils", "tools"]
+    # CUA-SHADE-Arena / Inspect AI
+    "inspect-ai==0.3.179",
 
-[tool.ruff]
-target-version = "py311"
-extend-include = ["*.ipynb"]
-extend-exclude = ["submodules"]
-
-# Line length 120 to makes it easier to have multiple files open side-by-side.
-line-length = 120
-
-# Directories to focus on for type checking
-include = ["utils/", "tools/", "task_pairs/", "task_evaluation/", "environments/", "llms/", "environment_classes/"]
-
-[tool.ruff.lint]
-# Check that imports are sorted and enable type checking
-extend-select = [
-    "I",    # isort
-    "TCH",  # flake8-type-checking
-    "TID",  # flake8-tidy-imports
-    "ARG",  # flake8-unused-arguments
-    "RET",  # flake8-return
-    "TD",   # flake8-todos
-    "FLY",  # flynt
+    # Metrics and lightweight analysis utilities
+    "numpy>=1.26,<3",
+    "pandas>=2.2,<3",
+    "scikit-learn>=1.6,<2",
+    "matplotlib>=3.8,<4",
+    "seaborn>=0.13,<1",
+    "openpyxl>=3.1,<4",
 ]
 
-# Ignore specific rules or files if needed
-ignore = []
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "pytest-asyncio>=0.25,<1",
+    "pytest-xdist>=3.6,<4",
+    "ruff>=0.9,<1",
+    "black>=24.10,<26",
+    "pre-commit>=4,<5",
+]
 
-[tool.ruff.lint.isort]
-# wandb is a package, but sometimes also a folder that gets created.
-# We tell ruff to treat it always as a third-party package to make import
-# sorting consistent.
-known-third-party = ["wandb"]
+[tool.setuptools]
+py-modules = [
+    "add_monitor",
+    "cal_metrics",
+    "compute_auc",
+    "run_cua",
+    "run_shade",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "cua_shade_arena*",
+    "cua_task_pairs*",
+    "environment_classes*",
+    "environments*",
+    "llms*",
+    "protocols*",
+    "task_evaluation*",
+    "task_pairs*",
+    "tools*",
+    "tracemrt*",
+    "utils*",
+]
+namespaces = true
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yaml", "*.yml", "*.txt", "*.csv", "*.xlsx"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-include = ["*.ipynb"]
+extend-exclude = [
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "__pycache__",
+    "llm_response_cache",
+    "cua_shade_arena/logs",
+    "cua_shade_arena/run_inspect_*",
+]
+include = [
+    "*.py",
+    "run_shade.py",
+    "run_cua.py",
+    "add_monitor.py",
+    "compute_auc.py",
+    "cal_metrics.py",
+    "cua_shade_arena/**/*.py",
+    "cua_task_pairs/**/*.py",
+    "environment_classes/**/*.py",
+    "environments/**/*.py",
+    "llms/**/*.py",
+    "protocols/**/*.py",
+    "task_evaluation/**/*.py",
+    "task_pairs/**/*.py",
+    "tools/**/*.py",
+    "tracemrt/**/*.py",
+    "utils/**/*.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = [
+    "E501",  # Long prompts and task strings are common in this repository.
+]
 
 [tool.black]
 line-length = 120
+target-version = ["py310"]
 include = '\.pyi?$'
 exclude = '''
 /(
     \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
   | \.venv
-  | _build
-  | buck-out
   | build
   | dist
+  | __pycache__
+  | llm_response_cache
+  | cua_shade_arena/logs
+  | cua_shade_arena/run_inspect_.*
 )/
 '''
 
 [tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py", "*_test.py"]
 markers = [
-    "integration: mark test as integration test"
+    "integration: marks tests that require external services or Docker",
 ]

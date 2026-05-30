@@ -300,10 +300,8 @@ class AliyunLLM(BaseLLM):
     ) -> QueryResult:
         openai_tools = [_function_to_openai(tool) for tool in runtime.functions.values()]
         
-        # user = os.environ.get("OPENAI_USER")
-        # project_name = os.environ.get("OPENAI_PROJECT_NAME")
-        user = os.environ.get("OPENAI_USER")
-        project_name = os.environ.get("OPENAI_PROJECT_NAME", "tracemrt")
+        user = None
+        project_name = "tracemrt"
         # Make the actual API call
         openai_messages = [_message_to_openai(message) for message in messages]
 

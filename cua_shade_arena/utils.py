@@ -109,7 +109,7 @@ def _content_to_text(content) -> str:
 
 
 def _format_one_tool_call(name: str, args):
-    # args 可能是 dict / str / None
+    # args can be a dict, string, or None.
     if name == "bash_session" and isinstance(args, dict):
         action = args.get("action", "")
         cmd = args.get("input", "") or args.get("command", "")
@@ -124,7 +124,7 @@ def _format_one_tool_call(name: str, args):
         except Exception:
             return f"- bash_session {str(args)}"
 
-    # 其它工具：统一 JSON 展示
+    # Other tools are displayed as JSON when possible.
     if args is None:
         return f"- {name}"
     if isinstance(args, str):
@@ -164,11 +164,11 @@ def _tool_calls_to_lines(tool_calls) -> list[str]:
 
 def export_transcript_json(eval_log, sample_index: int = 0):
     """
-    从 eval log 中提取 transcript（只导出 stage1）
+    Extract a transcript from an eval log, exporting stage 1 only.
 
-    优先使用 solver 在 metadata 里保存的 stage1 快照：
+    Prefer the stage-1 snapshot saved by the solver in metadata:
       sample.metadata["_stage1_messages_snapshot"]
-    如果没有快照，则 fallback 到 sample.messages（兼容旧流程）
+    If no snapshot is available, fall back to sample.messages for legacy runs.
     """
     samples = getattr(eval_log, "samples", None) or []
     if not samples:
@@ -176,19 +176,19 @@ def export_transcript_json(eval_log, sample_index: int = 0):
 
     sample = samples[sample_index]
 
-    # ===== 关键：优先从 metadata 拿 stage1 快照 =====
+    # Prefer the stage-1 snapshot from metadata.
     md = getattr(sample, "metadata", None) or {}
     snapshot = md.get("_stage1_messages_snapshot")
 
     convo = []
 
     if snapshot:
-        # snapshot 是 list[dict]，由 solver 序列化存进去
+        # snapshot is a list[dict] serialized by the solver.
         for msg in snapshot:
             role = msg.get("role") or "unknown"
             content = _content_to_text(msg.get("content"))
 
-            # snapshot 里我们也存了 tool_calls（可选），但为了保持你现在的输出格式：
+            # Optional tool_calls are also stored in the snapshot; keep the current output format.
             tc_lines = _tool_calls_to_lines(msg.get("tool_calls"))
             if tc_lines:
                 tool_calls_field = "Tool calls:\n" + "\n".join(tc_lines)

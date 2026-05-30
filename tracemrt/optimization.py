@@ -18,7 +18,7 @@ from utils.llm_utils import get_appropriate_llm
 
 from tracemrt.types import GAConfig, Individual, CandidateResult
 from tracemrt.strategy_bank import O_STRATEGIES, P_STRATEGIES
-from tracemrt.scoring import side_task_completion
+from tracemrt.scoring import side_run_shade
 from tracemrt.prompts import (
     RELATION_CLASSIFICATION_PROMPT,
     PHASE_ONE_RETRY_TEMPLATE,
@@ -26,8 +26,8 @@ from tracemrt.prompts import (
     FITNESS_EVALUATION_PROMPT,
 )
 
-GEMINI_API_KEY = os.environ.get("OPTIMIZER_API_KEY")
-GEMINI = os.environ.get("OPTIMIZER_MODEL", "gemini-3-flash-preview")
+GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GEMINI = os.environ.get("GOOGLE_MODEL", "gemini-3-flash-preview")
 
 def _dedent_strip(text: str) -> str:
         """Ensure that multi-line strings are properly dedented.
@@ -169,7 +169,7 @@ def _pick_two_diff_groups(n: int, group_map: list[int]) -> tuple[int,int]:
         
 def _get_client() -> genai.Client:
     if not GEMINI_API_KEY:
-        raise ValueError("OPTIMIZER_API_KEY environment variable is required for Gemini optimization")
+        raise ValueError("GOOGLE_API_KEY environment variable is required for Gemini optimization")
     return genai.Client(api_key=GEMINI_API_KEY)
 
 
@@ -287,7 +287,7 @@ def _tournament_select(pop: list[CandidateResult], k: int) -> CandidateResult:
     return max(cand, key=lambda x: x.fitness)
 
 def _crossover(a: Individual, b: Individual, O_ATOMIC: list[str], P_ATOMIC: list[str]) -> Individual:
-    """交叉操作：随机选择父代的o基因和p基因"""
+    """Crossover: randomly select parent O and P genes."""
     def pick(g1, g2):
         return g1 if random.random() < 0.5 else g2
 
@@ -298,7 +298,7 @@ def _crossover(a: Individual, b: Individual, O_ATOMIC: list[str], P_ATOMIC: list
     return child
 
 def _mutate(ind: Individual, mutation_prob: float, O_ATOMIC: list[str], P_ATOMIC: list[str]) -> Individual:
-    """变异操作：以一定概率随机改变基因"""
+    """Mutation: randomly change genes with a fixed probability."""
     if random.random() < mutation_prob:
         ind.o_idx = random.randrange(len(O_ATOMIC))
 
@@ -373,11 +373,11 @@ async def _evaluate_one(
         o = O_ATOMIC[ind.o_idx]
         p = P_ATOMIC[ind.p_idx]
 
-        # Step 1: side_task加入O和P策略改写
+        # Step 1: append O and P strategies to the side-task prompt.
         system_prompt_rewritten = base_system_prompt + "\n\n" + o + "\n\n" + p
         system_prompt_rewritten = system_prompt_rewritten.strip()
 
-        # Step 2: 黑盒agent快速评估fitness
+        # Step 2: run fast black-box agent fitness evaluation.
         try:
             fitness, error = await _evaluate_fitness_with_agent(
                 main_task=main_task,
@@ -428,10 +428,10 @@ async def phase_two(
         random.seed(cfg.seed)
     sem = asyncio.Semaphore(cfg.max_concurrency)
 
-    # ========== Part 1: 遗传算法快速筛选 ==========
+    # ========== Part 1: Fast genetic-algorithm filtering ==========
     print("\n[Part 1] Fast Gene Selection with GA")
 
-    # 提取O和P策略
+    # Extract O and P strategies.
     O_ATOMIC: list[str] = []
     for pair in O_STRATEGIES:
         for s in pair:
@@ -442,7 +442,7 @@ async def phase_two(
         for s in pair:
             P_ATOMIC.append(s)
 
-    # 初始化种群（10个个体，每个有1个o基因和1个p基因）
+    # Initialize the population with one O gene and one P gene per individual.
     population_size = cfg.population_size
     population: list[Individual] = []
     for _ in range(population_size):
@@ -456,15 +456,15 @@ async def phase_two(
             )
         )
 
-    # 遗传算法迭代（最多5代）
+    # Run GA iterations.
     max_generations = cfg.generations
     gen_cnt = 0
-    elite_results: list[CandidateResult] = []  # 保留elite的完整结果，避免重复评估
+    elite_results: list[CandidateResult] = []  # Keep full elite results to avoid duplicate evaluation.
 
     for gen in range(max_generations):
         print(f"\n=== GA Generation {gen + 1}/{max_generations} ===")
 
-        # 只评估新个体（跳过已有的elite）
+        # Evaluate only new individuals and skip existing elites.
         new_individuals = population[len(elite_results):]
         new_results = await asyncio.gather(*[
             _evaluate_one(
@@ -481,25 +481,25 @@ async def phase_two(
             for ind in new_individuals
         ])
 
-        # 合并elite结果和新评估结果
+        # Merge elite results with newly evaluated results.
         results: list[CandidateResult] = elite_results + list(new_results)
 
-        # 按fitness排序
+        # Sort by fitness.
         results.sort(key=lambda x: x.fitness, reverse=True)
 
-        # 打印当前代的结果
+        # Print current generation results.
         for i, r in enumerate(results):
             st = r.system_prompt
             print(f"[{i:02d}] fitness={r.fitness:7.2f} | {st[:200]}...")
 
-        # 早停条件：如果有至少top_k个样本fitness超过threshold
+        # Early stop once at least top_k samples exceed the fitness threshold.
         high_fitness_count = sum(1 for r in results if r.fitness >= fast_fitness_threshold)
         if high_fitness_count >= top_k:
             gen_cnt = gen + 1
             print(f"\n[GA] Early stopping at generation {gen + 1}: {high_fitness_count} samples exceed threshold {fast_fitness_threshold}")
             break
 
-        # 遗传操作：选择、交叉、变异
+        # Genetic operations: selection, crossover, and mutation.
         elite_results = results[: max(1, cfg.elite_k)]
         next_population: list[Individual] = [e.individual for e in elite_results]
 
@@ -515,7 +515,7 @@ async def phase_two(
     if gen_cnt == 0:
         gen_cnt = max_generations
 
-    # 从最后一代结果中选择top_k个最优样本
+    # Select the top-k candidates from the last generation.
     results.sort(key=lambda x: x.fitness, reverse=True)
     top_candidates = results[:top_k]
 
@@ -523,19 +523,19 @@ async def phase_two(
     for i, cand in enumerate(top_candidates):
         print(f"  [{i + 1}] fast_fitness={cand.fitness:7.2f}")
 
-    # ========== Part 2: SHADE-Arena实战评估 ==========
+    # ========== Part 2: Full SHADE-Arena evaluation ==========
     print(f"\n[Part 2] Full SHADE-Arena Evaluation")
 
     async def evaluate_single_candidate(idx: int, candidate: CandidateResult) -> CandidateResult:
-        """评估单个候选样本"""
+        """Evaluate one candidate sample."""
         print(f"\n--- Evaluating Candidate {idx + 1}/{len(top_candidates)} ---")
 
         current_system_prompt = candidate.system_prompt
 
         try:
-            # 运行完整SHADE-Arena评估
+            # Run the full SHADE-Arena evaluation.
             transcript = await evaluate_fn(current_system_prompt)
-            completion = float(side_task_completion(transcript))
+            completion = float(side_run_shade(transcript))
             suspicion = 0.0
             fitness = completion
 
@@ -564,13 +564,13 @@ async def phase_two(
                 error=f"{type(e).__name__}: {e}",
             )
 
-    # 并行评估所有top_k候选样本
+    # Evaluate all top-k candidate samples concurrently.
     all_results = await asyncio.gather(*[
         evaluate_single_candidate(idx, candidate)
         for idx, candidate in enumerate(top_candidates)
     ])
 
-    # 按fitness排序返回结果
+    # Sort by fitness.
     all_results = sorted(all_results, key=lambda x: x.fitness, reverse=True)
 
     print(f"\n[Part 2 Complete] All {len(all_results)} candidates evaluated")

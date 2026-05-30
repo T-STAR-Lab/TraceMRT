@@ -134,7 +134,7 @@ class ExperimentRunner:
             optimize=self.optimize,
         )
 
-        # 如果是优化模式且已保存结果，transcript 为 None，直接返回
+        # Optimization saves candidates itself and returns None here.
         if transcript is None:
             print(f"Experiment {experiment_num} completed (optimization mode)")
             return

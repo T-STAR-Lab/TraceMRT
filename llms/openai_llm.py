@@ -276,7 +276,7 @@ class OpenAILLM(BaseLLM):
         http_client = DefaultAsyncHttpxClient(
             limits=httpx.Limits(
                 max_keepalive_connections=50, 
-                max_connections=200  # 允许最大 200 个并发连接
+                max_connections=200  # Allow up to 200 concurrent connections.
             )
         )
 
@@ -359,7 +359,7 @@ class OpenAILLM(BaseLLM):
             if "usage" not in extra_args:
                 extra_args["usage"] = []
 
-            # 正确提取 reasoning_tokens（在 completion_tokens_details 中）
+            # Extract reasoning_tokens from completion_tokens_details when present.
             reasoning_tokens = 0
             if hasattr(usage, 'completion_tokens_details') and usage.completion_tokens_details:
                 reasoning_tokens = getattr(usage.completion_tokens_details, 'reasoning_tokens', 0) or 0
@@ -370,7 +370,7 @@ class OpenAILLM(BaseLLM):
                 "total_tokens": usage.total_tokens,
             }
 
-            # 仅在有推理 tokens 时才记录
+            # Record reasoning_tokens only when present.
             if reasoning_tokens > 0:
                 usage_entry["reasoning_tokens"] = reasoning_tokens
 
@@ -488,142 +488,3 @@ class OpenAILLM(BaseLLM):
             text=text,
             tools=tools
         )
-
-# class OpenAILLMToolFilter(BaseLLM):
-#     """A specialized OpenAI LLM that filters available tools based on a prompt."""
-    
-#     def __init__(self, prompt: str, client: AsyncOpenAI, model: str, temperature: float | None = 0.0) -> None:
-#         super().__init__(model, temperature)
-#         self.prompt = prompt
-#         self.client = client
-#         self.cache = LLMResponseCache()
-
-#     @property
-#     def provider(self) -> str:
-#         return "openai_tool_filter"
-    
-#     @classmethod
-#     def create_client(cls) -> AsyncOpenAI:
-#         """Create and return an OpenAI client instance"""
-#         api_key = os.environ.get("OPENAI_API_KEY")
-#         if not api_key:
-#             raise ValueError("OPENAI_API_KEY environment variable is required")
-#         return AsyncOpenAI(api_key=api_key)
-
-#     async def query(
-#         self,
-#         query: str,
-#         runtime: FunctionsRuntime,
-#         env: TaskEnvironment = EmptyEnv(),
-#         messages: Sequence[ChatMessage] = [],
-#         extra_args: dict = {},
-#     ) -> QueryResult:
-#         # Check if use_cache flag is set in extra_args
-#         use_cache = extra_args.get("use_cache", False)
-        
-#         # Add the prompt to the messages
-#         messages_with_prompt = [*messages, ChatUserMessage(role="user", content=self.prompt)]
-        
-#         # Convert tools to OpenAI format for cache key generation
-#         openai_tools = [_function_to_openai(tool) for tool in runtime.functions.values()]
-        
-#         # Check the cache if caching is enabled
-#         cached_data = None
-#         if use_cache:
-#             cached_data = self.cache.get_cached_response(
-#                 model_name=self.model,
-#                 messages=list(messages_with_prompt),
-#                 tools=openai_tools,
-#                 temperature=self.temperature
-#             )
-        
-#         if use_cache and cached_data:
-#             # Use cached response
-#             output = cached_data.get("output")
-#             usage = cached_data.get("usage")
-#             new_tools = cached_data.get("new_tools", {})
-            
-#             # Update the runtime with the filtered tools
-#             runtime.update_functions(new_tools)
-            
-#             # Store token counts in extra_args
-#             if "usage" not in extra_args:
-#                 extra_args["usage"] = []
-                
-#             extra_args["usage"].append({
-#                 "input_tokens": usage.get("prompt_tokens", 0),
-#                 "output_tokens": usage.get("completion_tokens", 0),
-#                 "total_tokens": usage.get("total_tokens", 0),
-#                 "cached": True
-#             })
-            
-#             return QueryResult(
-#                 query=query,
-#                 runtime=runtime,
-#                 env=env,
-#                 messages=[*messages, output],
-#                 extra_args=extra_args
-#             )
-#         else:
-#             # Make the actual API call
-#             openai_messages = [_message_to_openai(message) for message in messages_with_prompt]
-            
-#             completion, usage = await self.client.chat.completions.create(
-#                 model=self.model,
-#                 messages=openai_messages,
-#                 tools=openai_tools or NOT_GIVEN,
-#                 tool_choice="none",
-#                 temperature=self.temperature,
-#                 return_usage=True,
-#             )
-#             output = _openai_to_assistant_message(completion.choices[0].message)
-            
-#             # Filter tools based on output content
-#             new_tools = {}
-#             for tool_name, tool in runtime.functions.items():
-#                 if output["content"] is not None and tool_name in output["content"]:
-#                     new_tools[tool_name] = tool
-            
-#             runtime.update_functions(new_tools)
-            
-#             # Store token counts in extra_args
-#             if "usage" not in extra_args:
-#                 extra_args["usage"] = []
-                
-#             extra_args["usage"].append({
-#                 "input_tokens": usage.prompt_tokens,
-#                 "output_tokens": usage.completion_tokens,
-#                 "total_tokens": usage.total_tokens,
-#                 "cached": False
-#             })
-            
-#             # Cache the response if caching is enabled
-#             if use_cache:
-#                 cache_data = {
-#                     "output": output,
-#                     "usage": {
-#                         "prompt_tokens": usage.prompt_tokens,
-#                         "completion_tokens": usage.completion_tokens,
-#                         "total_tokens": usage.total_tokens
-#                     },
-#                     "new_tools": new_tools
-#                 }
-#                 self.cache.cache_response(
-#                     model_name=self.model,
-#                     messages=list(messages_with_prompt),
-#                     response_data=cache_data,
-#                     tools=openai_tools,
-#                     temperature=self.temperature
-#                 )
-            
-#             return QueryResult(
-#                 query=query,
-#                 runtime=runtime,
-#                 env=env,
-#                 messages=[*messages, output],
-#                 extra_args=extra_args,
-#             )
-
-# Register the OpenAI providers with the factory
-LLMFactory.register_provider("openai", OpenAILLM)
-# LLMFactory.register_provider("openai_tool_filter", OpenAILLMToolFilter)

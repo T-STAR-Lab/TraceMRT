@@ -14,7 +14,7 @@ from openai import BadRequestError
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from task_completion import load_task_definition_and_solution
+from run_shade import load_task_definition_and_solution
 from utils.analysis_utils import extract_verdict
 from utils.llm_utils import get_string_to_llm_dict
 from utils.logging_utils import json_conversation_to_string, strip_thinking_tags
@@ -49,7 +49,7 @@ async def process_single_transcript(
         conversation = transcript["conversation"]
         monitor_input = json_conversation_to_string(conversation[1:])
 
-        # 逐个 style 跑，同一个 transcript dict 写多个字段
+        # Run each style and store all style outputs in the same transcript dict.
         for monitor_style in monitor_style_list:
             try:
                 result, _ = await pipeline_utils.run_monitor(
@@ -75,7 +75,7 @@ async def process_single_transcript(
             else:
                 transcript[f"monitoring_response_{ms}"] = last_content
 
-        # 最后只保存一次
+        # Save once after all styles finish.
         os.makedirs(out_dir, exist_ok=True)
         output_file = os.path.join(out_dir, os.path.basename(json_file))
         with open(output_file, "w", encoding="utf-8") as f:
@@ -87,16 +87,16 @@ async def _process_single_task_transcript_monitor_async(
     task_name,
     task_def,
     transcript_type,
-    agent,  # 只处理这个 agent
+    agent,  # Only process this agent.
     monitor_model,
     semaphore,
     string_to_llm_dict,
     combination_idx,
     total_combinations,
     max_num_transcripts,
-    monitor_style_list,  # 列表：多个 style 写进同一个 json
+    monitor_style_list,  # Multiple styles are written into the same JSON file.
     dataset="shade_arena",
-    in_subdir=None,  # 指定输入子目录，None 则默认使用 monitor_model 名
+    in_subdir=None,  # Input subdirectory; None falls back to the monitor-model directory.
 ):
     combination_id = f"{task_name}/{transcript_type}/{agent}"
     print(f"[START] Combination {combination_idx}/{total_combinations}: {combination_id}")
@@ -104,11 +104,11 @@ async def _process_single_task_transcript_monitor_async(
     try:
         pipeline_utils = PipelineUtils(task_def())
 
-        # dataset 根目录逻辑保持不变
+        # Keep dataset root resolution centralized here.
         if dataset == "shade_arena":
             base_root = resolve_path(f"task_pairs/{task_name}/{transcript_type}")
         elif dataset == "cua_shade_arena":
-            base_root = resolve_path(f"task_pairs_agentcompany/{task_name}/{transcript_type}")
+            base_root = resolve_path(f"cua_task_pairs/{task_name}/{transcript_type}")
         else:
             raise ValueError(
                 f"Unknown dataset: {dataset}. Expected 'shade_arena' or 'cua_shade_arena'."
@@ -128,7 +128,7 @@ async def _process_single_task_transcript_monitor_async(
 
         print(f"[{combination_id}] Found {len(json_files)} transcripts in {in_dir}")
 
-        # 限制数量（按 transcript_0..N 的名字取）
+        # Limit by transcript_0..N file names.
         if len(json_files) > max_num_transcripts:
             limited = []
             for i in range(max_num_transcripts):
@@ -142,7 +142,7 @@ async def _process_single_task_transcript_monitor_async(
 
         monitor_to_llm_dict = string_to_llm_dict
 
-        # 输出目录：按 monitor_model 分，不按 style 分
+        # Output is grouped by monitor model, not by style.
         monitor_model_dir = monitor_model.split("/")[-1]
         out_dir = os.path.join(agent_dir, monitor_model_dir)
         os.makedirs(out_dir, exist_ok=True)
@@ -152,7 +152,7 @@ async def _process_single_task_transcript_monitor_async(
             f"Monitor styles: {monitor_style_list}"
         )
 
-        # 为每个 json_file 创建一次任务（一次任务内跑多个 style）
+        # Create one task per transcript; each task runs all requested styles.
         transcript_tasks = []
         for json_file in json_files:
             try:
@@ -196,8 +196,8 @@ async def process_many_transcripts(
     in_subdir=None,
 ):
     """
-    只保留维度：(task_name, transcript_type, agent)
-    默认从 agent/no_monitor 读；optimization transcript 默认从 agent/candidates 读。
+    Keep the processing dimensions to (task_name, transcript_type, agent).
+    Defaults to agent/no_monitor, or agent/candidates for optimization transcripts.
     """
     string_to_llm_dict = get_string_to_llm_dict([monitor_model])
 
@@ -333,13 +333,13 @@ if __name__ == "__main__":
         raise ValueError("monitor_style list is empty after parsing; please provide at least one style.")
 
 
-    # 注册信号
+    # Register signal handlers.
     signal.signal(signal.SIGQUIT, log_current_state)
     signal.signal(signal.SIGINT, lambda signum, frame: sys.exit(1))
     print("Press Ctrl+\\ to see current execution state")
     print("Press Ctrl+C to force exit")
 
-    # 决定并发度
+    # Resolve concurrency.
     if args.max_concurrent is not None:
         MAX_CONCURRENT_REQUESTS = args.max_concurrent
     else:
@@ -352,7 +352,7 @@ if __name__ == "__main__":
     if dataset_key == "shade_arena":
         task_pairs_root = "task_pairs"
     elif dataset_key == "cua_shade_arena":
-        task_pairs_root = "task_pairs_agentcompany"
+        task_pairs_root = "cua_task_pairs"
     else:
         raise ValueError(
             f"Unknown dataset: {args.dataset}. Expected 'shade_arena' or 'cua_shade_arena'."
@@ -361,7 +361,7 @@ if __name__ == "__main__":
         args.in_subdir = "candidates" if any("optimization" in t for t in args.transcript_type) else "no_monitor"
 
 
-    # 在 task_pairs_root 下自动发现有哪些任务有对应 transcript_type[0] 目录
+    # Auto-discover tasks that contain the first requested transcript type.
     task_pairs_dir = resolve_path(task_pairs_root)
     if not os.path.exists(task_pairs_dir):
         print(f"Error: {task_pairs_root} directory not found at {task_pairs_dir}")

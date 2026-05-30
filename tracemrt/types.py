@@ -15,8 +15,8 @@ class GAConfig:
 
 @dataclass
 class Individual:
-    o_idx: int  # 1个O基因
-    p_idx: int  # 1个P基因
+    o_idx: int  # One O gene.
+    p_idx: int  # One P gene.
 
 @dataclass
 class CandidateResult:

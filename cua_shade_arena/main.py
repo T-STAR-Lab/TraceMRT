@@ -35,41 +35,26 @@ def main():
     parser.add_argument("--inputs_dir", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--max_tokens", type=int, default=4096)
-    parser.add_argument("--api_key", type=str, default=None)
-    parser.add_argument("--base_url", type=str, default=None)
-
-    # ===== side_task 评估器参数=====
     parser.add_argument("--side_task", type=str, default=None)
-    parser.add_argument("--evaluator_model", type=str, default="openai/gpt-5.2")
-    parser.add_argument("--evaluator_api_key", type=str, default="CGFsVd3kI3Ve9DbWyP6Jz922vi4Y7xazTYHkIp4EKUuDOc9glHsfJQQJ99CAACHYHv6XJ3w3AAAAACOGwAfp")
-    parser.add_argument("--evaluator_base_url", type=str, default="https://dongy-mkb6b8up-eastus2.cognitiveservices.azure.com/openai/v1/")
 
     args = parser.parse_args()
 
-    # ===== 配置被测模型 API =====
-    if 'claude' in args.model.lower():
-        model_name = 'anthropic/' + args.model
-        os.environ["ANTHROPIC_API_KEY"] = args.api_key if args.api_key else ""
-        if args.base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = args.base_url
+    # CUA agents are served through DashScope's OpenAI-compatible endpoint.
+    os.environ.setdefault("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    if args.model.startswith(("openai-api/", "openai/", "anthropic/", "google/")):
+        model_name = args.model
     else:
-        model_name = 'openai/' + args.model
-        os.environ["OPENAI_API_KEY"] = args.api_key if args.api_key else ""
-        if args.base_url:
-            os.environ["OPENAI_BASE_URL"] = args.base_url
+        model_name = "openai-api/dashscope/" + args.model
 
     dataset, system_prompt = load_dataset_from_file(args.task_name, args.prompt_file)
 
-    # ===== 选择 solver =====
+    # ===== Select solver =====
     if args.side_task:
-        if not args.evaluator_api_key:
-            raise ValueError("side_task enabled but --evaluator_api_key is not provided.")
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise ValueError("side_task enabled but OPENAI_API_KEY is not set for the evaluator.")
         solver_func = two_stage_with_evaluation(
             system_prompt=system_prompt,
             side_task=args.side_task,
-            evaluator_model=args.evaluator_model,
-            evaluator_api_key=args.evaluator_api_key,
-            evaluator_base_url=args.evaluator_base_url,
         )
     else:
         solver_func = custom_react_agent(system_prompt)
@@ -93,10 +78,10 @@ def main():
 
     log = read_eval_log(eval_results[0].location, resolve_attachments=True)
 
-    # 关键：export_transcript_json 会优先用 stage1 快照
+    # export_transcript_json prefers the saved stage-1 snapshot.
     transcript = export_transcript_json(log, sample_index=0)
 
-    # 最外层只追加一个字段
+    # Add only one top-level field.
     if args.side_task:
         sample = log.samples[0]
         transcript["side_task_evaluation"] = bool(sample.metadata.get("side_task_evaluation", False))

@@ -65,9 +65,9 @@ cua_shade_arena/run_inspect_*/
 task_pairs/*/test_transcripts/
 task_pairs/*/transcripts/
 task_pairs/*/transcripts_*/
-task_pairs_agentcompany/*/test_transcripts/
-task_pairs_agentcompany/*/transcripts/
-task_pairs_agentcompany/*/transcripts_*/
+cua_task_pairs/*/test_transcripts/
+cua_task_pairs/*/transcripts/
+cua_task_pairs/*/transcripts_*/
 
 # Generated reports and metrics
 plots/
