@@ -316,6 +316,6 @@ Optimization candidates additionally contain:
 
 If you use this code, please cite the associated paper. Citation details will be added after release.
 
-## Data Notice
+## Acknowledgements
 
-Canary string: The following canary helps researchers prevent SHADE-Arena task data from being included in training datasets: tb0sobzyL7TdWeI1d6uj80jXjwfFDZ-fRzwcEBmjH5TPRdM9nFOmiedVSw8uS
+We gratefully acknowledge [SHADE-Arena](https://github.com/jkutaso/SHADE-Arena/tree/master) for providing the full SHADE-Arena task data, and [MRT](https://github.com/scaleapi/mrt/tree/main) for providing the full CUA-SHADE-Arena task data used in this project.
