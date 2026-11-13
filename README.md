@@ -314,7 +314,15 @@ Optimization candidates additionally contain:
 
 ## Citation
 
-If you use this code, please cite the associated paper. Citation details will be added after release.
+If you use this code, please cite the associated paper. 
+```
+@article{huang2026stress,
+  title={Stress Testing Chain-of-Thought Monitoring Against Covert Misalignment},
+  author={Huang, Yao and Wang, Yifan and Sun, Yitong and Zhang, Yichi and Dong, Yinpeng},
+  journal={arXiv preprint arXiv:2611.07586},
+  year={2026}
+}
+```
 
 ## Acknowledgements
 
